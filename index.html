@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>上海市景点游览最优路线查询系统</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+	<link rel="shortcut icon" href="pic/dance_cat.gif" />
+	<link rel="stylesheet" type="text/css" href="css/css.css">
+	<link rel="stylesheet" type="text/css" href="css/semantic.min.css">
+	<link rel="stylesheet" href="http://api.map.baidu.com/library/SearchInfoWindow/1.5/src/SearchInfoWindow_min.css" />
+	<script type="text/javascript" src="http://api.map.baidu.com/api?v=2.0&ak=Hj2Y79m7XUDO049y28UgQFBz">//引用百度API文件</script>
+	<script type="text/javascript" src="http://api.map.baidu.com/library/DistanceTool/1.2/src/DistanceTool.js">//测距工具</script>
+	<script type="text/javascript" src="http://api.map.baidu.com/library/SearchInfoWindow/1.5/src/SearchInfoWindow_min.js">//带检索功能的信息窗口</script>
+	<script type="text/javascript" src="http://api.map.baidu.com/library/EventWrapper/1.2/src/EventWrapper.min.js">//百度地图API事件包装器类</script>
+	<script src="http://libs.baidu.com/jquery/1.9.0/jquery.js"></script>
+	<script type="text/javascript" src="js/LocalSearch.js">//点的搜索和存储</script>
+	<script type="text/javascript" src="js/comm.js">//公共的变量</script>
+	<script type="text/javascript" src="js/debug.js">//调试测试的代码</script>
+	<script type="text/javascript" src="js/RouteRecommand.js">//路线推荐</script>
+	<!-- <script type="text/javascript" src="js/semantic.min.js">//UI美化相关</script> -->
+</head>
+<body>
+	<div id="buttons" class="ui vertical menu">
+		<div class="item" style="line-height:135%;">
+			您可以选择我们的推荐路线:
+			<select  onchange="simOptionClick4IE()" onclick="simOptionClick4IE()"> 
+				<!-- click：chrome正常 onchange：IE半正常 -->
+			    <option value=0 onclick="showOptionValue( this )" >经典一日游</option> <!--onclick: 火狐正常 -->
+			    <option value=1 onclick="showOptionValue( this )" >路线2测试</option>  
+			</select>
+			<br />或通过点击地图加入您感兴趣的地点，然后计算最省时出行计划。
+			<br /><div style="font-size: 80%">(右键单击最后一点可删除)</div> <!--。刷新页面则会清除所有已选点和行车方案。-->
+			<div class="ui input" id="r-result">
+				<input type="text" id="suggestId" size="20" value="" placeholder="景点智能辅助搜索"/>
+				<div id="manSearchDiv">
+					<div class="ui tiny teal button" onclick="manSearch(local);">搜索</div> 
+					<div style="font-size: 80%">(如智能搜索定位错误请点击搜索按钮重新搜索)</div>
+				</div>
+			</div>
+			<div id="searchResultPanel"></div>
+
+			<div class="ui tiny teal button" id="btnCalRoutePlan" onclick="calRoutePlan();">计算最优出行计划</div>
+		</div>
+		<div class="item"><!-- 其他功能 -->
+			<span class="ui tiny teal button" onclick="myDis.open();">鼠标测距</span>    
+			<!--<span class="ui tiny red button" onclick="myDis.close();">关闭</span>-->
+			<div class="ui tiny teal button" id="btnRedo" onclick="window.location.reload();">刷新页面</div>
+		</div>
+		<div id="points" class="item">
+			地点列表：
+			<ol id="ol_points" class="ui list"><!--点的输出显示--></ol>
+		</div>
+	</div>
+	<div id="allmap">
+		<!--显示地图-->
+	</div>
+	<div id="light" class="white_content">
+		<div class="close"><a href="javascript:void(0)" onclick="hide('light')"> 关闭</a></div>
+		<div class="con" id="rresult"> 
+			<!--驾车导航的结果面板-->
+		</div>
+	</div>
+	<div id="fade" class="black_overlay"></div>
+
+
+<script type="text/javascript">
+	BASE_URL = getRootPath();
+	var map = new BMap.Map("allmap");
+	var myCity = new BMap.LocalCity();
+	var cityName;//上海市
+	var myDis = new BMapLib.DistanceTool(map);
+	var local = new BMap.LocalSearch(map, {
+		renderOptions:{map: map}
+	}); //关键字搜索 
+	var ac = new BMap.Autocomplete(    //建立一个自动完成的对象
+		{"input" : "suggestId",
+		 "location" : map
+	});
+
+	myCity.get(locateCallback);//根据IP定位中心
+	function locateCallback(result) {
+		cityName = result.name;
+		map.centerAndZoom(cityName, 14);//初始化地图
+		map.addControl(new BMap.NavigationControl());
+		map.enableScrollWheelZoom(); //启用滚轮放大缩小，默认禁用
+		map.enableContinuousZoom();//启用地图惯性拖拽，默认禁用
+	}
+	ac.addEventListener("onhighlight", onList);//鼠标放在下拉列表上的事件
+	ac.addEventListener("onconfirm",clickList);//鼠标点击下拉列表后的事件
+
+	map.addEventListener("click", map_Click);//点击了地图上的某点
+
+	//控制弹出层的显示与隐藏
+	function show(tag){
+		var light=document.getElementById(tag);
+		var fade=document.getElementById('fade');
+		light.style.display='block';
+		fade.style.display='block';
+	}
+	function hide(tag){
+		var light=document.getElementById(tag);
+		var fade=document.getElementById('fade');
+		light.style.display='none';
+		fade.style.display='none';
+	}
+	/*
+	在IE里, select的option是不支持onclick事件的, 而在FF 和 OPERA 里, option 是支持onclick事件的.
+	(safari似乎也不支持,不过暂时我还不知道如何解决safari的问题.)
+
+	虽然onchange在某些时刻可以代替 option的click事件, 但是两者并无法做到完全等价.
+	因为onchange只有在 你点击的option和之前的option不同时才会触发.
+	当select当前选中的是第一项  而你再次点击第一项时, select是不会被触发的.
+
+
+	下面的代码演示了一种间接实现 option onclick的方法
+
+	注意:此方案只适用于　下拉方式的单选select. 
+	*/
+	function simOptionClick4IE(){  
+	    var evt=window.event  ;  
+	    var selectObj=evt?evt.srcElement:null;  
+	    // IE Only  
+	    if (evt && selectObj &&  evt.offsetY && evt.button!=2  
+	        && (evt.offsetY > selectObj.offsetHeight || evt.offsetY<0 ) ) {  
+	              
+	            // 记录原先的选中项  
+	            var oldIdx = selectObj.selectedIndex;  
+	  
+	            setTimeout(function(){  
+	                var option=selectObj.options[selectObj.selectedIndex];  
+	                // 此时可以通过判断 oldIdx 是否等于 selectObj.selectedIndex  
+	                // 来判断用户是不是点击了同一个选项,进而做不同的处理.  
+	                showOptionValue(option)  
+	  
+	            }, 60);  
+	    } 
+	}  
+	  
+	function showOptionValue(opt){  
+	    var now=new Date();  
+	    var dt= (1900+now.getYear())+'-'+(now.getMonth()+1)+'-'+now.getDate()+  
+	            ' '+now.getHours()+':'+now.getHours()+':'+now.getSeconds()+'.'+now.getMilliseconds();  
+	    var str=dt +" 时,点击了: " + (opt.text + ' = '+opt.value); 
+	    //alert(str);
+	    RouteRecommand(opt.value);
+	} 
+</script>
+<script type="text/javascript" src="js/q.js">//Promise模式实现</script>
+<script type="text/javascript" src="js/driving.js">//BMap.DrivingRoute Promise模式实现</script>
+<script type="text/javascript" src="js/route.js">//自驾车路径搜索</script><!--是按顺序加载的，route.js里用到map的定义故需要放后边-->
+	
+</body>
+</html>
